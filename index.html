@@ -29,7 +29,7 @@
   document.getElementById('pwa-manifest').href = URL.createObjectURL(blob);
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Input Data Produksi - LAWANG</title>
+<title>Input Data Produksi</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -178,7 +178,7 @@
 <body>
 
 <header>
-  <h1>📊 Input Data Produksi - LAWANG</h1>
+  <h1>📊 Input Data Produksi</h1>
   <p id="tanggalHariIni"></p>
   <div class="status-bar">
     <div class="status-dot" id="statusDot"></div>
@@ -399,9 +399,7 @@
           <label>Shift</label>
           <select id="tk-SHIFT">
             <option value="">Pilih</option>
-            <option>SHIFT 1</option>
-            <option>SHIFT 2</option>
-            <option>SHIFT 3</option>
+            <option>SHIFT 1</option><option>SHIFT 2</option><option>SHIFT 3</option>
           </select>
         </div>
       </div>
@@ -456,7 +454,7 @@
     const el = document.getElementById(id); if (el) el.value = todayStr;
   });
 
-  const savedUrl = localStorage.getItem('webhookUrl_lawang');
+  const savedUrl = localStorage.getItem('webhookUrl');
   if (savedUrl) { document.getElementById('webhookUrl').value = savedUrl; updateStatus(true); }
   const savedNama = localStorage.getItem("inputNama");
   if (savedNama) document.getElementById("inputNama").value = savedNama;
@@ -465,7 +463,7 @@
   });
 
   let activeSheet = 'GILING';
-  let logData = JSON.parse(localStorage.getItem('logProduksi_lawang') || '[]');
+  let logData = JSON.parse(localStorage.getItem('logProduksi') || '[]');
   renderLog();
 
   function gantiSheet(sheet) {
@@ -741,7 +739,7 @@
   async function testKoneksi() {
     const url = document.getElementById('webhookUrl').value.trim();
     if (!url) { showToast('Masukkan URL dulu!', true); return; }
-    localStorage.setItem('webhookUrl_lawang', url);
+    localStorage.setItem('webhookUrl', url);
     updateStatus(false, 'Menguji koneksi...');
     try {
       await fetch(url + '?test=1', { method: 'GET', mode: 'no-cors' });
@@ -885,15 +883,15 @@
       }
 
       if (logData.length > 50) logData.pop();
-      localStorage.setItem('logProduksi_lawang', JSON.stringify(logData));
-      localStorage.setItem('webhookUrl_lawang', url);
+      localStorage.setItem('logProduksi', JSON.stringify(logData));
+      localStorage.setItem('webhookUrl', url);
       renderLog(); resetFormAktif();
       showToast('✓ Data ' + activeSheet + ' berhasil dikirim!');
       updateStatus(true);
 
     } catch(e) {
       logData.unshift({ sheet: activeSheet, produk: '-', tanggal: '-', nama, timestamp, status: 'error' });
-      localStorage.setItem('logProduksi_lawang', JSON.stringify(logData));
+      localStorage.setItem('logProduksi', JSON.stringify(logData));
       renderLog(); showToast('Gagal kirim. Cek koneksi internet.', true);
     }
 
@@ -1193,11 +1191,16 @@
     return [];
   }
 
+  // ===== SHARE KE WA (FIXED) =====
   async function shareKeWA() {
     const el = document.getElementById('previewContent');
     try {
-      const w = 360;
+      const w = 400;
       const scale = 2;
+      const padX = 20;
+      const gap = 16;
+      const lineHeight = 20;
+      const rowPadY = 12;
       const rows = el.querySelectorAll('.preview-row');
       const sheetName = document.querySelector('.preview-badge') ? document.querySelector('.preview-badge').textContent : 'Produksi';
 
@@ -1207,66 +1210,137 @@
         let line = '';
         words.forEach(word => {
           const test = line ? line + ' ' + word : word;
-          if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = word; }
-          else line = test;
+          if (ctx.measureText(test).width > maxW && line) {
+            lines.push(line);
+            line = word;
+          } else {
+            line = test;
+          }
         });
         if (line) lines.push(line);
         return lines.length ? lines : [''];
       }
 
-      // Pre-calc height
+      // === Ukur font untuk key dan value ===
       const tmp = document.createElement('canvas').getContext('2d');
-      tmp.font = '12px sans-serif';
-      let totalH = 80;
+
+      const keyFont = 'bold 11px sans-serif';
+      const valFont = 'bold 13px sans-serif';
+
+      // Hitung lebar key maksimal
+      tmp.font = keyFont;
+      let maxKeyW = 0;
       rows.forEach(row => {
-        const val = row.querySelector('.preview-val');
-        if (val) { const lns = wrapText(tmp, val.textContent, w * 0.52); totalH += Math.max(26, lns.length * 18 + 10); }
+        const keyEl = row.querySelector('.preview-key');
+        if (keyEl) {
+          const kw = tmp.measureText(keyEl.textContent.toUpperCase()).width;
+          if (kw > maxKeyW) maxKeyW = kw;
+        }
+      });
+      maxKeyW = Math.min(maxKeyW + 8, w * 0.45); // max 45% width
+
+      const valMaxW = w - padX * 2 - maxKeyW - gap;
+
+      // === Pre-calc semua row metrics ===
+      const metrics = [];
+      rows.forEach(row => {
+        const keyEl = row.querySelector('.preview-key');
+        const valEl = row.querySelector('.preview-val');
+        if (!keyEl || !valEl) { metrics.push(null); return; }
+
+        const keyText = keyEl.textContent.toUpperCase();
+        const valText = valEl.textContent;
+
+        tmp.font = keyFont;
+        const keyLines = wrapText(tmp, keyText, maxKeyW);
+        tmp.font = valFont;
+        const valLines = wrapText(tmp, valText, valMaxW);
+
+        const maxLines = Math.max(keyLines.length, valLines.length);
+        const rowH = maxLines * lineHeight + rowPadY;
+        metrics.push({ keyLines, valLines, rowH });
       });
 
+      // === Hitung total tinggi ===
+      const headerH = 70;
+      const footerH = 20;
+      let totalH = headerH;
+      metrics.forEach(m => { if (m) totalH += m.rowH; });
+      totalH += footerH;
+
+      // === Buat canvas ===
       const canvas = document.createElement('canvas');
       canvas.width = w * scale;
       canvas.height = totalH * scale;
       const ctx = canvas.getContext('2d');
       ctx.scale(scale, scale);
 
+      // Background
       ctx.fillStyle = '#1a2635';
       ctx.fillRect(0, 0, w, totalH);
 
+      // Header - badge
+      ctx.fillStyle = '#0d2a24';
+      const badgeText = '📊 ' + sheetName;
+      ctx.font = 'bold 14px sans-serif';
+      const badgeW = ctx.measureText(badgeText).width + 24;
+      roundRect(ctx, padX, 16, badgeW, 28, 6);
+      ctx.fill();
       ctx.fillStyle = '#00c9a7';
-      ctx.font = 'bold 15px sans-serif';
-      ctx.fillText('📊 ' + sheetName, 16, 28);
-      ctx.fillStyle = '#7a90a8';
-      ctx.font = '11px sans-serif';
-      ctx.fillText(new Date().toLocaleString('id-ID'), 16, 46);
-      ctx.fillStyle = '#263447';
-      ctx.fillRect(16, 54, w - 32, 1);
+      ctx.textAlign = 'left';
+      ctx.fillText(badgeText, padX + 12, 35);
 
-      let y = 68;
-      rows.forEach(row => {
-        const key = row.querySelector('.preview-key');
-        const val = row.querySelector('.preview-val');
-        if (!key || !val) return;
-        ctx.font = '11px sans-serif';
+      // Header - tanggal
+      ctx.fillStyle = '#5a7088';
+      ctx.font = '11px sans-serif';
+      ctx.fillText(new Date().toLocaleString('id-ID'), padX, 58);
+
+      // Garis pemisah header
+      ctx.fillStyle = '#263447';
+      ctx.fillRect(padX, 66, w - padX * 2, 1);
+
+      // === Gambar data rows ===
+      let y = headerH;
+      metrics.forEach((m, i) => {
+        if (!m) return;
+
+        const maxLines = Math.max(m.keyLines.length, m.valLines.length);
+
+        // Hitung vertical center offset untuk baris dengan banyak line
+        const contentH = maxLines * lineHeight;
+        const startY = y + rowPadY / 2;
+
+        // Gambar Key (kiri)
+        ctx.font = keyFont;
         ctx.fillStyle = '#7a90a8';
         ctx.textAlign = 'left';
-        ctx.fillText(key.textContent.toUpperCase(), 16, y + 14);
-
-        ctx.fillStyle = '#e8f0fe';
-        ctx.font = '12px sans-serif';
-        const valLines = wrapText(ctx, val.textContent, w * 0.52);
-        valLines.forEach((line, li) => {
-          ctx.textAlign = 'right';
-          ctx.fillText(line, w - 16, y + 14 + li * 18);
+        m.keyLines.forEach((line, li) => {
+          ctx.fillText(line, padX, startY + 12 + li * lineHeight);
         });
-        const rowH = Math.max(26, valLines.length * 18 + 10);
-        y += rowH;
-        ctx.fillStyle = '#263447';
-        ctx.fillRect(16, y, w - 32, 1);
-        y += 2;
+
+        // Gambar Value (kanan)
+        ctx.font = valFont;
+        ctx.fillStyle = '#e8f0fe';
+        ctx.textAlign = 'right';
+        m.valLines.forEach((line, li) => {
+          ctx.fillText(line, w - padX, startY + 12 + li * lineHeight);
+        });
+
+        y += m.rowH;
+
+        // Garis pemisah antar row
+        if (i < metrics.length - 1) {
+          ctx.fillStyle = '#263447';
+          ctx.fillRect(padX, y - 1, w - padX * 2, 1);
+        }
       });
 
+      // Footer line
+      ctx.fillStyle = '#263447';
+      ctx.fillRect(padX, totalH - footerH, w - padX * 2, 1);
+
       canvas.toBlob(async function(blob) {
-        if (navigator.share && navigator.canShare({ files: [new File([blob], 'produksi.png', { type: 'image/png' })] })) {
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([blob], 'produksi.png', { type: 'image/png' })] })) {
           await navigator.share({ title: 'Data Produksi', files: [new File([blob], 'produksi.png', { type: 'image/png' })] });
         } else {
           const a = document.createElement('a');
@@ -1279,6 +1353,21 @@
     } catch(err) {
       showToast('Gagal share: ' + err.message, true);
     }
+  }
+
+  // Helper: gambar rounded rectangle
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
   }
 
   function tutupPreview(e) {
@@ -1320,7 +1409,7 @@
 
   function clearLog() {
     if (confirm('Hapus semua riwayat lokal?')) {
-      logData = []; localStorage.removeItem('logProduksi_lawang'); renderLog();
+      logData = []; localStorage.removeItem('logProduksi'); renderLog();
     }
   }
 
